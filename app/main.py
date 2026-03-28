@@ -80,6 +80,8 @@ from api.export import router as export_router
 from api.irc import router as irc_router
 # v5.1: Enterprise Connectors API
 from api.connectors import router as connectors_router
+# v5.1b: Pursuit-Repo Links API
+from api.pursuit_repo_links import router as pursuit_repo_links_router
 
 # v3.2: Import event bus components
 from events.redis_publisher import publisher
@@ -415,10 +417,13 @@ async def lifespan(app: FastAPI):
         try:
             from connectors import connector_registry
             from connectors.github import GitHubAppConnector, GitHubRBACBridge, GitHubSyncService
+            from connectors.github.pursuit_linker import PursuitRepoLinker
+            from connectors.github.signal_ingester import GitHubSignalIngester
             from connectors.base import ConnectorMeta
             from models.connector_installation import create_connector_installations_indexes
             from models.webhook_event import create_webhook_events_indexes
             from models.github_sync_log import ensure_github_sync_indexes, ensure_github_sync_status_indexes
+            from models.pursuit_repo_link import PURSUIT_REPO_LINKS_INDEXES, GITHUB_ACTIVITY_SIGNALS_INDEXES
 
             # Create MongoDB indexes for connector collections
             create_connector_installations_indexes(db.db)
@@ -426,6 +431,29 @@ async def lifespan(app: FastAPI):
             # v5.1a: Create indexes for RBAC sync collections
             ensure_github_sync_indexes(db.db)
             ensure_github_sync_status_indexes(db.db)
+            # v5.1b: Create indexes for pursuit-repo linkage
+            for idx_def in PURSUIT_REPO_LINKS_INDEXES:
+                try:
+                    db.db.pursuit_repo_links.create_index(
+                        idx_def["keys"],
+                        name=idx_def["name"],
+                        unique=idx_def.get("unique", False),
+                        partialFilterExpression=idx_def.get("partialFilterExpression"),
+                        background=True,
+                    )
+                except Exception:
+                    pass
+            for idx_def in GITHUB_ACTIVITY_SIGNALS_INDEXES:
+                try:
+                    db.db.github_activity_signals.create_index(
+                        idx_def["keys"],
+                        name=idx_def["name"],
+                        unique=idx_def.get("unique", False),
+                        partialFilterExpression=idx_def.get("partialFilterExpression"),
+                        background=True,
+                    )
+                except Exception:
+                    pass
             logger.info("Connector collection indexes created")
 
             # Initialize registry
@@ -439,9 +467,17 @@ async def lifespan(app: FastAPI):
             github_rbac_bridge = GitHubRBACBridge(db.db, github_connector, publisher)
             github_sync_service = GitHubSyncService(db.db, github_rbac_bridge, publisher)
 
+            # v5.1b: Initialize Pursuit-Repo Linker
+            pursuit_linker = PursuitRepoLinker(db.db, github_connector, publisher)
+
+            # v5.1b: Initialize Signal Ingester for Pillar 1/2
+            signal_ingester = GitHubSignalIngester(db.db, publisher)
+
             # Store in app state for route access
             app.state.github_rbac_bridge = github_rbac_bridge
             app.state.github_sync_service = github_sync_service
+            app.state.pursuit_linker = pursuit_linker
+            app.state.github_signal_ingester = signal_ingester
 
             # Register stub connectors (placeholders for future builds)
             connector_registry.register_stub(ConnectorMeta(
@@ -464,6 +500,8 @@ async def lifespan(app: FastAPI):
             app.state.connector_registry = connector_registry
             logger.info(f"[startup] Connector registry initialized: {len(connector_registry.list_available())} connectors available")
             logger.info("[startup] GitHub RBAC Bridge and Sync Service initialized")
+            logger.info("[startup] Pursuit-Repo Linker initialized")
+            logger.info("[startup] GitHub Signal Ingester initialized")
         except Exception as e:
             logger.warning(f"Connector registry initialization failed: {e}")
             # Connectors are additive — don't block startup
@@ -658,6 +696,8 @@ app.include_router(irc_router, prefix="/api", tags=["IRC"])
 # v5.1: Enterprise Connectors API (CINDE-only - routes return 404 in LINDE)
 if _startup_gate.enterprise_connectors:
     app.include_router(connectors_router, prefix="/api/v1", tags=["Connectors"])
+    # v5.1b: Pursuit-Repo Links API
+    app.include_router(pursuit_repo_links_router, prefix="/api/v1", tags=["Pursuit Repo Links"])
 
 
 # WebSocket for real-time coaching

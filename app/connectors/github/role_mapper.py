@@ -173,6 +173,53 @@ class GitHubRoleMapper:
 
         return (effective, human_floor_applied)
 
+    def compute_effective_pursuit_role(
+        self,
+        github_derived_pursuit_role: Optional[str],
+        human_set_pursuit_role: Optional[str],
+        current_pursuit_role: Optional[str]
+    ) -> Tuple[str, bool]:
+        """
+        Compute effective pursuit role with human floor enforcement (Layer 2).
+
+        The human floor rule ensures that GitHub sync can elevate or match
+        a pursuit role, but never demote below what a human admin has set.
+
+        Two-layer independence: This method only deals with pursuit roles,
+        never touches or considers org roles.
+
+        Args:
+            github_derived_pursuit_role: Role derived from GitHub repo permissions
+            human_set_pursuit_role: Role explicitly set by human admin (the floor)
+            current_pursuit_role: Current pursuit role (may be None if new)
+
+        Returns:
+            Tuple of (effective_pursuit_role, human_floor_was_applied)
+        """
+        # If user not in GitHub repo, keep current role or default to viewer
+        if github_derived_pursuit_role is None:
+            return (current_pursuit_role or "viewer", False)
+
+        # If no human-set role, use GitHub-derived role
+        if human_set_pursuit_role is None:
+            return (github_derived_pursuit_role, False)
+
+        # Compute max(github_derived_pursuit_role, human_set_pursuit_role)
+        effective = self.max_pursuit_role(github_derived_pursuit_role, human_set_pursuit_role)
+
+        # Check if human floor prevented demotion
+        human_floor_applied = (effective == human_set_pursuit_role and
+                               effective != github_derived_pursuit_role)
+
+        return (effective, human_floor_applied)
+
+    def pursuit_role_index(self, role: str) -> int:
+        """Get the numeric index of a pursuit role in the hierarchy."""
+        try:
+            return PURSUIT_ROLE_HIERARCHY.index(role)
+        except ValueError:
+            return 0
+
     def role_index(self, role: str) -> int:
         """Get the numeric index of a role in the hierarchy."""
         try:

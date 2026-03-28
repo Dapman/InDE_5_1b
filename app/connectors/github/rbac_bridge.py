@@ -89,6 +89,22 @@ class OverrideResult:
     timestamp: datetime
 
 
+@dataclass
+class PursuitRoleSyncResult:
+    """Result of pursuit role sync from repository collaborators (Layer 2)."""
+    org_id: str
+    pursuit_id: str
+    github_repo_id: int
+    is_primary_repo: bool
+    synced_count: int           # Members with role changes
+    unchanged_count: int        # Members with no role change
+    floor_applied_count: int    # Members where human floor prevented demotion
+    error_count: int            # Members that failed to sync
+    action: str                 # "synced" | "secondary_repo_signal_only" | "no_links" | "error"
+    delivery_id: Optional[str] = None
+    error_message: Optional[str] = None
+
+
 # =============================================================================
 # GITHUB RBAC BRIDGE
 # =============================================================================
@@ -596,6 +612,329 @@ class GitHubRBACBridge:
             admin_user_id=admin_user_id,
             timestamp=now
         )
+
+    async def sync_pursuit_roles_from_repo(
+        self,
+        org_id: str,
+        github_repo_id: int,
+        delivery_id: str
+    ) -> List[PursuitRoleSyncResult]:
+        """
+        Layer 2 Live Activation: Sync GitHub repo roles to InDE pursuit roles.
+
+        Called when a repository collaborator event fires (member added/removed/changed).
+
+        Flow:
+        1. Look up all active pursuit_repo_links for this github_repo_id
+        2. For each linked pursuit:
+           a. Only apply Layer 2 roles if this repo is the primary repo for the pursuit
+           b. Fetch current GitHub collaborators for the repo via GitHubAppConnector
+           c. For each collaborator: map GitHub role → InDE pursuit role
+           d. Apply human floor: effective_pursuit_role = max(github_derived, human_set)
+           e. Update pursuit memberships with new effective_pursuit_role
+           f. Write to github_sync_log with event_type="webhook_repo_collab"
+        3. Secondary repos: log signal only, do NOT modify pursuit roles
+
+        Two-layer independence invariant:
+        This method MUST NOT read or modify org_role. It reads and writes pursuit_role
+        only. The org_role layer remains completely independent.
+
+        Args:
+            org_id: InDE organization ID
+            github_repo_id: GitHub numeric repo ID
+            delivery_id: Webhook delivery ID for idempotency
+
+        Returns:
+            List of PursuitRoleSyncResult for each linked pursuit
+        """
+        results = []
+
+        # Look up all pursuit links for this repo
+        links = list(self.db.pursuit_repo_links.find({
+            "org_id": org_id,
+            "github_repo_id": github_repo_id,
+            "is_active": True,
+        }))
+
+        if not links:
+            # No pursuits linked to this repo
+            self._log_sync_event(
+                org_id=org_id,
+                event_type="webhook_repo_collab",
+                github_delivery_id=delivery_id,
+                action="no_links",
+                details={"github_repo_id": github_repo_id}
+            )
+            return [PursuitRoleSyncResult(
+                org_id=org_id,
+                pursuit_id="",
+                github_repo_id=github_repo_id,
+                is_primary_repo=False,
+                synced_count=0,
+                unchanged_count=0,
+                floor_applied_count=0,
+                error_count=0,
+                action="no_links",
+                delivery_id=delivery_id
+            )]
+
+        for link in links:
+            pursuit_id = link.get("pursuit_id")
+            is_primary = link.get("is_primary", False)
+            github_repo_full_name = link.get("github_repo_full_name", "")
+
+            if not is_primary:
+                # Secondary repo: log signal only, no role mutation
+                self._log_sync_event(
+                    org_id=org_id,
+                    event_type="webhook_repo_collab",
+                    github_delivery_id=delivery_id,
+                    action="secondary_repo_signal_only",
+                    details={
+                        "pursuit_id": pursuit_id,
+                        "github_repo_id": github_repo_id,
+                        "github_repo_full_name": github_repo_full_name,
+                        "reason": "not_primary_repo"
+                    }
+                )
+                results.append(PursuitRoleSyncResult(
+                    org_id=org_id,
+                    pursuit_id=pursuit_id,
+                    github_repo_id=github_repo_id,
+                    is_primary_repo=False,
+                    synced_count=0,
+                    unchanged_count=0,
+                    floor_applied_count=0,
+                    error_count=0,
+                    action="secondary_repo_signal_only",
+                    delivery_id=delivery_id
+                ))
+                continue
+
+            # Primary repo: sync pursuit roles
+            result = await self._sync_pursuit_roles_from_primary_repo(
+                org_id=org_id,
+                pursuit_id=pursuit_id,
+                github_repo_id=github_repo_id,
+                github_repo_full_name=github_repo_full_name,
+                delivery_id=delivery_id
+            )
+            results.append(result)
+
+        return results
+
+    async def _sync_pursuit_roles_from_primary_repo(
+        self,
+        org_id: str,
+        pursuit_id: str,
+        github_repo_id: int,
+        github_repo_full_name: str,
+        delivery_id: str
+    ) -> PursuitRoleSyncResult:
+        """
+        Sync pursuit roles from primary repo collaborators.
+
+        Two-layer independence: This method only modifies pursuit_role,
+        never touches org_role.
+        """
+        now = datetime.utcnow()
+        synced_count = 0
+        unchanged_count = 0
+        floor_applied_count = 0
+        error_count = 0
+
+        try:
+            # Get API client
+            if not self.connector:
+                return PursuitRoleSyncResult(
+                    org_id=org_id,
+                    pursuit_id=pursuit_id,
+                    github_repo_id=github_repo_id,
+                    is_primary_repo=True,
+                    synced_count=0,
+                    unchanged_count=0,
+                    floor_applied_count=0,
+                    error_count=0,
+                    action="error",
+                    delivery_id=delivery_id,
+                    error_message="Connector not available"
+                )
+
+            client = await self.connector.get_api_client(org_id)
+            if not client:
+                return PursuitRoleSyncResult(
+                    org_id=org_id,
+                    pursuit_id=pursuit_id,
+                    github_repo_id=github_repo_id,
+                    is_primary_repo=True,
+                    synced_count=0,
+                    unchanged_count=0,
+                    floor_applied_count=0,
+                    error_count=0,
+                    action="error",
+                    delivery_id=delivery_id,
+                    error_message="Failed to get API client"
+                )
+
+            try:
+                # Fetch repo collaborators from GitHub
+                collaborators = await client.get_repo_collaborators(github_repo_full_name)
+
+                for collab in collaborators:
+                    try:
+                        github_login = collab.get("login")
+                        github_repo_role = collab.get("permissions", {})
+
+                        # Determine highest role from permissions
+                        if github_repo_role.get("admin"):
+                            role_key = "admin"
+                        elif github_repo_role.get("maintain"):
+                            role_key = "maintain"
+                        elif github_repo_role.get("push"):
+                            role_key = "write"
+                        elif github_repo_role.get("triage"):
+                            role_key = "triage"
+                        else:
+                            role_key = "read"
+
+                        # Map to InDE pursuit role
+                        github_derived_pursuit_role = self.role_mapper.map_repo_role(role_key)
+
+                        # Find user's membership in org
+                        membership = self.db.memberships.find_one({
+                            "org_id": org_id,
+                            "github_login": github_login,
+                            "status": "active"
+                        })
+
+                        if not membership:
+                            # Try to find by user record
+                            user = self.db.users.find_one({"github_login": github_login})
+                            if user:
+                                membership = self.db.memberships.find_one({
+                                    "org_id": org_id,
+                                    "user_id": str(user["_id"]),
+                                    "status": "active"
+                                })
+
+                        if not membership:
+                            # User not in InDE - skip
+                            continue
+
+                        user_id = membership.get("user_id")
+
+                        # Find pursuit membership
+                        pursuit_membership = self.db.pursuit_memberships.find_one({
+                            "pursuit_id": pursuit_id,
+                            "user_id": user_id,
+                        })
+
+                        pursuit_role_before = None
+                        human_set_pursuit_role = None
+
+                        if pursuit_membership:
+                            pursuit_role_before = pursuit_membership.get("pursuit_role") or pursuit_membership.get("role")
+                            human_set_pursuit_role = pursuit_membership.get("human_set_pursuit_role")
+
+                        # Compute effective pursuit role with human floor
+                        effective_pursuit_role, floor_applied = self.role_mapper.compute_effective_pursuit_role(
+                            github_derived_pursuit_role=github_derived_pursuit_role,
+                            human_set_pursuit_role=human_set_pursuit_role,
+                            current_pursuit_role=pursuit_role_before
+                        )
+
+                        # Determine if role changed
+                        if pursuit_role_before == effective_pursuit_role:
+                            unchanged_count += 1
+                        elif floor_applied:
+                            floor_applied_count += 1
+                            synced_count += 1
+                        else:
+                            synced_count += 1
+
+                        # Update or create pursuit membership
+                        if pursuit_membership:
+                            self.db.pursuit_memberships.update_one(
+                                {"_id": pursuit_membership["_id"]},
+                                {
+                                    "$set": {
+                                        "pursuit_role": effective_pursuit_role,
+                                        "role": effective_pursuit_role,
+                                        "github_derived_pursuit_role": github_derived_pursuit_role,
+                                        "github_repo_role": role_key,
+                                        "github_synced_at": now,
+                                    }
+                                }
+                            )
+                        else:
+                            # Create new pursuit membership
+                            self.db.pursuit_memberships.insert_one({
+                                "pursuit_id": pursuit_id,
+                                "user_id": user_id,
+                                "org_id": org_id,
+                                "pursuit_role": effective_pursuit_role,
+                                "role": effective_pursuit_role,
+                                "github_login": github_login,
+                                "github_derived_pursuit_role": github_derived_pursuit_role,
+                                "github_repo_role": role_key,
+                                "github_synced_at": now,
+                                "created_at": now,
+                            })
+                            synced_count += 1
+
+                    except Exception as e:
+                        logger.error(f"Failed to sync pursuit role for {collab.get('login')}: {e}")
+                        error_count += 1
+
+            finally:
+                await client.close()
+
+            # Log sync event
+            self._log_sync_event(
+                org_id=org_id,
+                event_type="webhook_repo_collab",
+                github_delivery_id=delivery_id,
+                action="synced",
+                details={
+                    "pursuit_id": pursuit_id,
+                    "github_repo_id": github_repo_id,
+                    "github_repo_full_name": github_repo_full_name,
+                    "is_primary_repo": True,
+                    "synced_count": synced_count,
+                    "unchanged_count": unchanged_count,
+                    "floor_applied_count": floor_applied_count,
+                    "error_count": error_count
+                }
+            )
+
+            return PursuitRoleSyncResult(
+                org_id=org_id,
+                pursuit_id=pursuit_id,
+                github_repo_id=github_repo_id,
+                is_primary_repo=True,
+                synced_count=synced_count,
+                unchanged_count=unchanged_count,
+                floor_applied_count=floor_applied_count,
+                error_count=error_count,
+                action="synced",
+                delivery_id=delivery_id
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to sync pursuit roles from repo {github_repo_id}: {e}")
+            return PursuitRoleSyncResult(
+                org_id=org_id,
+                pursuit_id=pursuit_id,
+                github_repo_id=github_repo_id,
+                is_primary_repo=True,
+                synced_count=synced_count,
+                unchanged_count=unchanged_count,
+                floor_applied_count=floor_applied_count,
+                error_count=error_count,
+                action="error",
+                delivery_id=delivery_id,
+                error_message=str(e)
+            )
 
     # =========================================================================
     # PRIVATE HELPERS

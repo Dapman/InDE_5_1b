@@ -1,6 +1,145 @@
 # InDE MVP Changelog
 
-## [5.1b.0] — 2026-03-28 "The GitHub RBAC Bridge"
+## [5.1b.0] — 2026-03-28 "IDTFS GitHub Activation"
+
+### Series
+InDE v5.1b — IDTFS GitHub Activation. Completes the GitHub connector pipeline
+with pursuit-repo linkage, Layer 2 live RBAC activation, and Pillar 1/2 signal
+ingestion. GitHub activity now flows into innovator_profiles, enabling real
+GitHub contribution metrics for pursuits.
+
+### Added
+
+**Pursuit-Repo Linkage — app/connectors/github/pursuit_linker.py**
+- `PursuitRepoLinker` class managing 1:N pursuit-to-repo relationships
+- `link_repo()` creates link with primary designation handling
+- `unlink_repo()` soft deletes with auto-promotion of next primary
+- `set_primary()` atomic swap of primary designation
+- `get_links_for_pursuit()` returns links with primary first
+- `get_pursuits_for_repo()` for webhook routing
+
+**Pursuit-Repo Link Model — app/models/pursuit_repo_link.py**
+- `PursuitRepoLink` dataclass with org/pursuit/repo identifiers
+- `GithubActivitySignal` dataclass for signal storage
+- `compute_signal_strength()` for Pillar 1 metrics
+- Index definitions for pursuit_repo_links and github_activity_signals
+
+**Layer 2 RBAC Activation — app/connectors/github/rbac_bridge.py**
+- `PursuitRoleSyncResult` dataclass for sync results
+- `sync_pursuit_roles_from_repo()` method for primary repo sync
+- `_sync_pursuit_roles_from_primary_repo()` helper
+- Human floor enforcement at pursuit level
+
+**Layer 2 Role Mapping — app/connectors/github/role_mapper.py**
+- `compute_effective_pursuit_role()` with floor enforcement
+- `pursuit_role_index()` for role comparison
+- Repo admin maps to pursuit_editor (never owner)
+
+**Signal Ingestion — app/connectors/github/signal_ingester.py**
+- `GitHubSignalIngester` class for webhook-to-signal transformation
+- `ingest_push()` creates push_commit signals per commit
+- `ingest_pull_request()` creates pr_opened/pr_merged signals
+- `ingest_team_activity()` creates team_added/team_removed signals
+- `recompute_activity_summary()` for 90-day rolling metrics
+- `IngestResult` and `SummaryRecomputeResult` dataclasses
+
+**Signal Webhook Handlers — app/connectors/github/webhook_handlers.py**
+- `handle_member()` for Layer 2 repo collaborator events
+- `handle_push()` for commit activity signals
+- `handle_pull_request()` for PR lifecycle signals
+- `handle_pull_request_review()` for review signals
+
+**Admin Confirmation UI — app/api/connectors.py**
+- `GET /api/v1/connectors/github/members/unlinked` — List unlinked members
+- `POST /api/v1/connectors/github/members/{id}/confirm-unlink` — Confirm action
+- Actions: "remove" (revoke membership) or "retain" (convert to human-managed)
+
+**Pursuit-Repo Link API — app/api/pursuit_repo_links.py**
+- `POST /api/v1/pursuit-repo-links/` — Link repo to pursuit
+- `GET /api/v1/pursuit-repo-links/{pursuit_id}` — List repos for pursuit
+- `DELETE /api/v1/pursuit-repo-links/{pursuit_id}/{repo_id}` — Unlink repo
+- `PATCH /api/v1/pursuit-repo-links/{pursuit_id}/{repo_id}/primary` — Set primary
+
+### Signal Types
+
+| Signal Type | GitHub Event | Pillar |
+|-------------|--------------|--------|
+| `push_commit` | push | 1 |
+| `pr_opened` | pull_request.opened | 1/2 |
+| `pr_merged` | pull_request.closed (merged) | 1/2 |
+| `pr_reviewed` | pull_request_review.submitted | 2 |
+| `team_added` | team.added_to_repository | 2 |
+| `team_removed` | team.removed_from_repository | 2 |
+
+### Signal Strength Thresholds
+
+| Strength | Signal Count (90 days) |
+|----------|------------------------|
+| strong | 10+ |
+| moderate | 4-9 |
+| weak | 1-3 |
+| none | 0 |
+
+### New MongoDB Collections
+
+**pursuit_repo_links**
+```javascript
+{
+  org_id: "org-123",
+  pursuit_id: "pursuit-456",
+  github_repo_id: 12345,
+  github_repo_full_name: "org/repo",
+  is_primary: true,
+  linked_at: ISODate(),
+  linked_by: "user-789",
+  status: "active"
+}
+// Index: { org_id, pursuit_id, github_repo_id, status } unique
+```
+
+**github_activity_signals**
+```javascript
+{
+  org_id: "org-123",
+  pursuit_id: "pursuit-456",
+  user_id: "user-789",
+  github_login: "octocat",
+  delivery_id: "abc-123",
+  signal_type: "push_commit",
+  occurred_at: ISODate(),
+  ingested_at: ISODate(),
+  metadata: { ... }
+}
+// Index: { delivery_id, signal_type } unique (idempotency)
+```
+
+### Sovereignty Enforcement
+
+Connectors must NOT import from coaching, maturity, fear, or pursuit_content.
+Verified by AST-based tests that scan all connector files for forbidden imports.
+
+### Tests
+
+- **tests/test_pursuit_repo_links.py**: 12 tests for linkage CRUD
+- **tests/test_layer2_live.py**: 8 tests for pursuit role sync
+- **tests/test_signal_ingestion.py**: 13 tests for signal types
+- **tests/test_admin_ui_sovereignty.py**: 8 tests for admin UI + sovereignty
+- **Total v5.1b tests**: 41
+
+### Documentation
+
+- **docs/GITHUB_IDTFS_SIGNALS.md**: Full signal ingestion reference
+
+### Architecture
+
+- **CINDE-only**: All features gated by `enterprise_connectors`
+- **LINDE unchanged**: Zero impact on individual innovator deployments
+- **v5.1a compatible**: All 36 v5.1a tests pass unmodified
+- **v5.1b test total**: 77 tests (36 baseline + 41 new)
+
+---
+
+## [5.1a.0] — 2026-03-28 "The GitHub RBAC Bridge"
 
 ### Series
 InDE v5.1a — The GitHub RBAC Bridge. Implements live synchronization of

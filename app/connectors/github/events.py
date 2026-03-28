@@ -16,6 +16,10 @@ from .webhook_handlers import (
     handle_team_add,
     handle_repository,
     handle_installation,
+    handle_member,
+    handle_push,
+    handle_pull_request,
+    handle_pull_request_review,
 )
 
 logger = logging.getLogger("inde.connectors.github.events")
@@ -29,6 +33,10 @@ EVENT_HANDLERS = {
     "team": "handle_team",
     "team_add": "handle_team_add",
     "repository": "handle_repository",
+    "member": "handle_member",  # v5.1b: Layer 2 RBAC activation
+    "push": "handle_push",  # v5.1b: Pillar 1/2 signal ingestion
+    "pull_request": "handle_pull_request",  # v5.1b: Pillar 1/2 signal ingestion
+    "pull_request_review": "handle_pull_request_review",  # v5.1b: Pillar 1/2 signal ingestion
 }
 
 
@@ -40,12 +48,14 @@ async def process_github_webhook(
     payload: dict,
     delivery_id: str,
     bridge=None,
-    sync_service=None
+    sync_service=None,
+    signal_ingester=None
 ) -> str:
     """
     Route webhook event to appropriate handler.
 
     v5.1a: Integrates with GitHubRBACBridge for live RBAC sync.
+    v5.1b: Integrates with GitHubSignalIngester for Pillar 1/2 signals.
 
     Args:
         db: MongoDB database
@@ -56,6 +66,7 @@ async def process_github_webhook(
         delivery_id: Delivery ID
         bridge: GitHubRBACBridge instance (optional, from app.state)
         sync_service: GitHubSyncService instance (optional, from app.state)
+        signal_ingester: GitHubSignalIngester instance (optional, from app.state)
 
     Returns:
         Processing result (SUCCESS, SKIPPED, ERROR)
@@ -122,6 +133,50 @@ async def process_github_webhook(
             return await handle_repository(
                 db=db,
                 bridge=bridge,
+                event_publisher=event_publisher,
+                org_id=org_id,
+                payload=payload,
+                delivery_id=delivery_id
+            )
+
+        elif event_type == "member":
+            # v5.1b: Layer 2 RBAC activation - repo collaborator events
+            return await handle_member(
+                db=db,
+                bridge=bridge,
+                event_publisher=event_publisher,
+                org_id=org_id,
+                payload=payload,
+                delivery_id=delivery_id
+            )
+
+        elif event_type == "push":
+            # v5.1b: Pillar 1/2 signal ingestion - commit activity
+            return await handle_push(
+                db=db,
+                signal_ingester=signal_ingester,
+                event_publisher=event_publisher,
+                org_id=org_id,
+                payload=payload,
+                delivery_id=delivery_id
+            )
+
+        elif event_type == "pull_request":
+            # v5.1b: Pillar 1/2 signal ingestion - PR activity
+            return await handle_pull_request(
+                db=db,
+                signal_ingester=signal_ingester,
+                event_publisher=event_publisher,
+                org_id=org_id,
+                payload=payload,
+                delivery_id=delivery_id
+            )
+
+        elif event_type == "pull_request_review":
+            # v5.1b: Pillar 1/2 signal ingestion - review activity
+            return await handle_pull_request_review(
+                db=db,
+                signal_ingester=signal_ingester,
                 event_publisher=event_publisher,
                 org_id=org_id,
                 payload=payload,

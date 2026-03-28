@@ -30,8 +30,22 @@ from .rbac_bridge import (
     TeamSyncResult,
     OrgSyncResult,
     OverrideResult,
+    PursuitRoleSyncResult,
 )
 from .sync_service import GitHubSyncService, SyncStatus
+from .pursuit_linker import (
+    PursuitRepoLinker,
+    PursuitNotFoundError,
+    RepoNotFoundError,
+    DuplicateLinkError,
+    LinkNotFoundError,
+    LinkResult,
+)
+from .signal_ingester import (
+    GitHubSignalIngester,
+    IngestResult,
+    SummaryRecomputeResult,
+)
 
 __all__ = [
     # Core connector
@@ -63,7 +77,19 @@ __all__ = [
     'TeamSyncResult',
     'OrgSyncResult',
     'OverrideResult',
+    'PursuitRoleSyncResult',
     # Sync Service (v5.1a)
     'GitHubSyncService',
     'SyncStatus',
+    # Pursuit Linker (v5.1b)
+    'PursuitRepoLinker',
+    'PursuitNotFoundError',
+    'RepoNotFoundError',
+    'DuplicateLinkError',
+    'LinkNotFoundError',
+    'LinkResult',
+    # Signal Ingester (v5.1b)
+    'GitHubSignalIngester',
+    'IngestResult',
+    'SummaryRecomputeResult',
 ]

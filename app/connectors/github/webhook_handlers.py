@@ -321,6 +321,278 @@ async def handle_repository(
     return "SUCCESS"
 
 
+async def handle_member(
+    db,
+    bridge,
+    event_publisher,
+    org_id: str,
+    payload: dict,
+    delivery_id: str
+) -> str:
+    """
+    Handle GitHub 'member' event: repository collaborator added/removed/edited.
+
+    v5.1b: Triggers Layer 2 RBAC sync for pursuit roles.
+
+    This event fires when:
+    - A collaborator is added to a repository
+    - A collaborator is removed from a repository
+    - A collaborator's permission level is changed
+
+    Args:
+        db: MongoDB database
+        bridge: GitHubRBACBridge instance
+        event_publisher: Event publisher for audit
+        org_id: InDE organization ID
+        payload: Webhook payload
+        delivery_id: Delivery ID
+
+    Returns:
+        Processing result (SUCCESS, SKIPPED, ERROR)
+    """
+    action = payload.get("action")  # added, removed, edited
+    member = payload.get("member", {})
+    repo = payload.get("repository", {})
+    changes = payload.get("changes", {})
+
+    github_login = member.get("login")
+    github_repo_id = repo.get("id")
+    github_repo_full_name = repo.get("full_name")
+
+    logger.info(
+        f"GitHub member (collab) event: {action} - "
+        f"user={github_login} repo={github_repo_full_name}"
+    )
+
+    try:
+        # Trigger Layer 2 RBAC sync for all pursuits linked to this repo
+        results = await bridge.sync_pursuit_roles_from_repo(
+            org_id=org_id,
+            github_repo_id=github_repo_id,
+            delivery_id=delivery_id
+        )
+
+        # Emit audit event
+        if event_publisher:
+            await event_publisher.publish("github.member", {
+                "action": action,
+                "github_user_login": github_login,
+                "github_user_id": member.get("id"),
+                "github_repo_full_name": github_repo_full_name,
+                "github_repo_id": github_repo_id,
+                "org_id": org_id,
+                "delivery_id": delivery_id,
+                "pursuits_synced": len([r for r in results if r.action == "synced"]),
+                "pursuits_signal_only": len([r for r in results if r.action == "secondary_repo_signal_only"]),
+                "timestamp": datetime.utcnow().isoformat()
+            })
+
+        return "SUCCESS"
+
+    except Exception as e:
+        logger.error(f"Member handler error: {e}")
+        return "ERROR"
+
+
+async def handle_push(
+    db,
+    signal_ingester,
+    event_publisher,
+    org_id: str,
+    payload: dict,
+    delivery_id: str
+) -> str:
+    """
+    Handle GitHub 'push' event: commits pushed to repository.
+
+    v5.1b: Ingests push_commit signals for Pillar 1/2 discovery.
+
+    Args:
+        db: MongoDB database
+        signal_ingester: GitHubSignalIngester instance
+        event_publisher: Event publisher for audit
+        org_id: InDE organization ID
+        payload: Webhook payload
+        delivery_id: Delivery ID
+
+    Returns:
+        Processing result (SUCCESS, SKIPPED, ERROR)
+    """
+    repo = payload.get("repository", {})
+    commits = payload.get("commits", [])
+    pusher = payload.get("pusher", {})
+
+    logger.info(
+        f"GitHub push event: {len(commits)} commits to {repo.get('full_name')} "
+        f"by {pusher.get('name')}"
+    )
+
+    if not signal_ingester:
+        logger.warning("Signal ingester not available, skipping push signal ingestion")
+        return "SKIPPED"
+
+    try:
+        results = await signal_ingester.ingest_push(
+            org_id=org_id,
+            payload=payload,
+            delivery_id=delivery_id
+        )
+
+        # Emit audit event
+        if event_publisher:
+            await event_publisher.publish("github.push", {
+                "github_repo_full_name": repo.get("full_name"),
+                "github_repo_id": repo.get("id"),
+                "commits_count": len(commits),
+                "signals_ingested": len([r for r in results if r.action == "ingested"]),
+                "org_id": org_id,
+                "delivery_id": delivery_id,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+
+        return "SUCCESS"
+
+    except Exception as e:
+        logger.error(f"Push handler error: {e}")
+        return "ERROR"
+
+
+async def handle_pull_request(
+    db,
+    signal_ingester,
+    event_publisher,
+    org_id: str,
+    payload: dict,
+    delivery_id: str
+) -> str:
+    """
+    Handle GitHub 'pull_request' event: PR opened/closed/merged.
+
+    v5.1b: Ingests pr_opened and pr_merged signals for Pillar 1/2 discovery.
+
+    Args:
+        db: MongoDB database
+        signal_ingester: GitHubSignalIngester instance
+        event_publisher: Event publisher for audit
+        org_id: InDE organization ID
+        payload: Webhook payload
+        delivery_id: Delivery ID
+
+    Returns:
+        Processing result (SUCCESS, SKIPPED, ERROR)
+    """
+    action = payload.get("action", "")
+    pr = payload.get("pull_request", {})
+    repo = payload.get("repository", {})
+
+    logger.info(
+        f"GitHub pull_request event: {action} - PR #{pr.get('number')} "
+        f"in {repo.get('full_name')}"
+    )
+
+    if not signal_ingester:
+        logger.warning("Signal ingester not available, skipping PR signal ingestion")
+        return "SKIPPED"
+
+    try:
+        result = await signal_ingester.ingest_pull_request(
+            org_id=org_id,
+            payload=payload,
+            delivery_id=delivery_id
+        )
+
+        # Emit audit event
+        if event_publisher:
+            await event_publisher.publish("github.pull_request", {
+                "action": action,
+                "github_repo_full_name": repo.get("full_name"),
+                "github_repo_id": repo.get("id"),
+                "pr_number": pr.get("number"),
+                "pr_title": pr.get("title", "")[:100],
+                "signal_type": result.signal_type,
+                "signal_action": result.action,
+                "org_id": org_id,
+                "delivery_id": delivery_id,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+
+        return "SUCCESS"
+
+    except Exception as e:
+        logger.error(f"Pull request handler error: {e}")
+        return "ERROR"
+
+
+async def handle_pull_request_review(
+    db,
+    signal_ingester,
+    event_publisher,
+    org_id: str,
+    payload: dict,
+    delivery_id: str
+) -> str:
+    """
+    Handle GitHub 'pull_request_review' event: review submitted.
+
+    v5.1b: Ingests pr_reviewed signals for Pillar 1/2 discovery.
+
+    Args:
+        db: MongoDB database
+        signal_ingester: GitHubSignalIngester instance
+        event_publisher: Event publisher for audit
+        org_id: InDE organization ID
+        payload: Webhook payload
+        delivery_id: Delivery ID
+
+    Returns:
+        Processing result (SUCCESS, SKIPPED, ERROR)
+    """
+    action = payload.get("action", "")
+    review = payload.get("review", {})
+    pr = payload.get("pull_request", {})
+    repo = payload.get("repository", {})
+
+    logger.info(
+        f"GitHub pull_request_review event: {action} on PR #{pr.get('number')} "
+        f"in {repo.get('full_name')}"
+    )
+
+    # Only process "submitted" action
+    if action != "submitted":
+        return "SKIPPED"
+
+    if not signal_ingester:
+        logger.warning("Signal ingester not available, skipping review signal ingestion")
+        return "SKIPPED"
+
+    try:
+        result = await signal_ingester.ingest_pull_request(
+            org_id=org_id,
+            payload=payload,
+            delivery_id=delivery_id
+        )
+
+        # Emit audit event
+        if event_publisher:
+            await event_publisher.publish("github.pull_request_review", {
+                "action": action,
+                "github_repo_full_name": repo.get("full_name"),
+                "pr_number": pr.get("number"),
+                "reviewer": review.get("user", {}).get("login"),
+                "state": review.get("state"),
+                "signal_action": result.action,
+                "org_id": org_id,
+                "delivery_id": delivery_id,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+
+        return "SUCCESS"
+
+    except Exception as e:
+        logger.error(f"Pull request review handler error: {e}")
+        return "ERROR"
+
+
 async def handle_installation(
     db,
     bridge,

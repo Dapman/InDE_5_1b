@@ -800,3 +800,197 @@ async def set_member_role(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v5.1b: Admin Confirmation UI for github_unlinked Users
+# ─────────────────────────────────────────────────────────────────────────────
+
+class UnlinkedMemberInfo(BaseModel):
+    """Member marked as github_unlinked awaiting admin action."""
+    user_id: str
+    email: Optional[str] = None
+    display_name: Optional[str] = None
+    github_login: Optional[str] = None
+    effective_role: str
+    github_unlinked_at: Optional[str] = None
+    github_last_synced_at: Optional[str] = None
+
+
+class UnlinkedMembersResponse(BaseModel):
+    """Response for listing github_unlinked members."""
+    members: List[UnlinkedMemberInfo]
+    total: int
+
+
+class ConfirmUnlinkRequest(BaseModel):
+    """Request to confirm removal of unlinked member."""
+    action: str  # "remove" | "retain"
+
+
+class ConfirmUnlinkResponse(BaseModel):
+    """Response for confirming unlink action."""
+    user_id: str
+    action: str
+    message: str
+    membership_status: str
+
+
+@router.get("/connectors/github/members/unlinked", response_model=UnlinkedMembersResponse)
+async def list_unlinked_members(
+    request: Request,
+    gate=Depends(require_cinde_mode),
+    current_user=Depends(get_current_user)
+):
+    """
+    List members marked as github_unlinked awaiting admin review.
+
+    These are members who were previously synced from GitHub but no longer
+    appear in the GitHub organization. Admin must confirm whether to remove
+    their access or retain them manually.
+
+    Requires: org_admin role
+    """
+    require_org_admin(current_user)
+    org_id = get_user_org_id(current_user)
+    db = request.app.state.db.db
+
+    # Query memberships with github_unlinked=True
+    cursor = db.memberships.find({
+        "org_id": org_id,
+        "status": "ACTIVE",
+        "github_unlinked": True
+    }).sort("github_unlinked_at", -1)
+
+    members = []
+    for doc in cursor:
+        user_id = doc.get("user_id", "")
+        user = db.users.find_one({"_id": user_id}) or {}
+
+        members.append(UnlinkedMemberInfo(
+            user_id=user_id,
+            email=user.get("email"),
+            display_name=user.get("display_name") or user.get("name"),
+            github_login=doc.get("github_login"),
+            effective_role=doc.get("effective_role") or doc.get("role", "org_viewer"),
+            github_unlinked_at=doc.get("github_unlinked_at").isoformat() if doc.get("github_unlinked_at") else None,
+            github_last_synced_at=doc.get("github_synced_at").isoformat() if doc.get("github_synced_at") else None
+        ))
+
+    return UnlinkedMembersResponse(
+        members=members,
+        total=len(members)
+    )
+
+
+@router.post("/connectors/github/members/{user_id}/confirm-unlink", response_model=ConfirmUnlinkResponse)
+async def confirm_unlink_member(
+    user_id: str,
+    request: Request,
+    body: ConfirmUnlinkRequest,
+    gate=Depends(require_cinde_mode),
+    current_user=Depends(get_current_user)
+):
+    """
+    Confirm action for a github_unlinked member.
+
+    Actions:
+    - "remove": Revoke membership (status -> REVOKED)
+    - "retain": Clear github_unlinked flag and convert to human-managed membership
+
+    Requires: org_admin role
+    """
+    require_org_admin(current_user)
+    org_id = get_user_org_id(current_user)
+    admin_user_id = current_user.get("user_id", current_user.get("id", ""))
+    db = request.app.state.db.db
+
+    # Validate action
+    if body.action not in ["remove", "retain"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid action. Must be 'remove' or 'retain'."
+        )
+
+    # Find the membership
+    membership = db.memberships.find_one({
+        "org_id": org_id,
+        "user_id": user_id,
+        "status": "ACTIVE",
+        "github_unlinked": True
+    })
+
+    if not membership:
+        raise HTTPException(
+            status_code=404,
+            detail="Unlinked member not found"
+        )
+
+    if body.action == "remove":
+        # Revoke membership
+        db.memberships.update_one(
+            {"_id": membership["_id"]},
+            {
+                "$set": {
+                    "status": "REVOKED",
+                    "revoked_at": datetime.utcnow(),
+                    "revoked_by": admin_user_id,
+                    "revoke_reason": "github_unlinked_confirmed"
+                }
+            }
+        )
+
+        # Log the action
+        db.github_sync_log.insert_one({
+            "org_id": org_id,
+            "event_type": "admin_confirm_unlink",
+            "action": "remove",
+            "github_login": membership.get("github_login"),
+            "affected_user_id": user_id,
+            "admin_user_id": admin_user_id,
+            "created_at": datetime.utcnow()
+        })
+
+        return ConfirmUnlinkResponse(
+            user_id=user_id,
+            action="remove",
+            message="Membership revoked. User no longer has access.",
+            membership_status="REVOKED"
+        )
+
+    else:  # retain
+        # Clear github_unlinked flag and convert to human-managed
+        db.memberships.update_one(
+            {"_id": membership["_id"]},
+            {
+                "$set": {
+                    "github_unlinked": False,
+                    "github_unlinked_at": None,
+                    "github_login": None,
+                    "github_org_role": None,
+                    "github_derived_role": None,
+                    "human_set_role": membership.get("effective_role", "org_viewer"),
+                    "human_set_at": datetime.utcnow(),
+                    "human_set_by": admin_user_id
+                }
+            }
+        )
+
+        # Log the action
+        db.github_sync_log.insert_one({
+            "org_id": org_id,
+            "event_type": "admin_confirm_unlink",
+            "action": "retain",
+            "github_login": membership.get("github_login"),
+            "affected_user_id": user_id,
+            "admin_user_id": admin_user_id,
+            "retained_role": membership.get("effective_role", "org_viewer"),
+            "created_at": datetime.utcnow()
+        })
+
+        return ConfirmUnlinkResponse(
+            user_id=user_id,
+            action="retain",
+            message="Member retained with human-managed role. GitHub link cleared.",
+            membership_status="ACTIVE"
+        )
