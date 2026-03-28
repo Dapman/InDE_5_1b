@@ -9,7 +9,7 @@ import logging
 import uuid
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger("inde.connectors.github.sync_service")
@@ -85,7 +85,7 @@ class GitHubSyncService:
             "event_type": "initial_sync",
             "action": "started",
             "sync_id": sync_id,
-            "created_at": datetime.utcnow()
+            "created_at": datetime.now(timezone.utc)
         })
 
         logger.info(f"Triggered initial sync for org {org_id}, sync_id={sync_id}")
@@ -140,7 +140,7 @@ class GitHubSyncService:
                 {
                     "$set": {
                         "org_id": org_id,
-                        "last_sync_at": datetime.utcnow(),
+                        "last_sync_at": datetime.now(timezone.utc),
                         "last_sync_id": sync_id,
                         "last_sync_status": "FAILED",
                         "error_message": str(e)

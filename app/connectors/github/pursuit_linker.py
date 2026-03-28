@@ -13,7 +13,7 @@ Design invariants:
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 logger = logging.getLogger("inde.connectors.github.pursuit_linker")
@@ -121,7 +121,7 @@ class PursuitRepoLinker:
             PursuitNotFoundError: If pursuit doesn't exist in org
             DuplicateLinkError: If active link already exists
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # Validate pursuit exists in org
         pursuit = self.db.pursuits.find_one({
@@ -264,7 +264,7 @@ class PursuitRepoLinker:
         Raises:
             LinkNotFoundError: If link doesn't exist
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # Find the link
         link = self.db.pursuit_repo_links.find_one({
@@ -390,7 +390,7 @@ class PursuitRepoLinker:
         Raises:
             LinkNotFoundError: If link doesn't exist
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # Find the target link
         target_link = self.db.pursuit_repo_links.find_one({

@@ -22,7 +22,7 @@ import sys
 import pytest
 import importlib
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import patch, MagicMock, AsyncMock
 
 # Set test environment variables before imports
@@ -158,7 +158,7 @@ class TestRBACBridge:
         update_call = {
             "$set": {
                 "github_unlinked": True,
-                "github_unlinked_at": datetime.utcnow()
+                "github_unlinked_at": datetime.now(timezone.utc)
             }
         }
 

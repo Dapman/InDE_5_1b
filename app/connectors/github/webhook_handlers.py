@@ -13,7 +13,7 @@ Handler responsibilities:
 
 import logging
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger("inde.connectors.github.webhook_handlers")
 
@@ -67,7 +67,7 @@ async def handle_membership(
                 "delivery_id": delivery_id,
                 "skipped": True,
                 "reason": "team_scope",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             })
         return "SKIPPED"
 
@@ -92,7 +92,7 @@ async def handle_membership(
                 "role_before": result.role_before,
                 "role_after": result.role_after,
                 "human_floor_applied": result.human_floor_applied,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             })
 
         return "SUCCESS"
@@ -152,7 +152,7 @@ async def handle_organization(
                 "sync_result": result.action,
                 "affected_user_id": result.affected_user_id,
                 "new_org_login": result.new_org_login,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             })
 
         return "SUCCESS"
@@ -206,7 +206,7 @@ async def handle_team(
             "github_org_login": org.get("login"),
             "org_id": org_id,
             "delivery_id": delivery_id,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         })
 
     return "SUCCESS"
@@ -262,7 +262,7 @@ async def handle_team_add(
                 "org_id": org_id,
                 "delivery_id": delivery_id,
                 "sync_result": result.action,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             })
 
         return "SUCCESS"
@@ -315,7 +315,7 @@ async def handle_repository(
             "github_org_login": org.get("login") if org else None,
             "org_id": org_id,
             "delivery_id": delivery_id,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         })
 
     return "SUCCESS"
@@ -384,7 +384,7 @@ async def handle_member(
                 "delivery_id": delivery_id,
                 "pursuits_synced": len([r for r in results if r.action == "synced"]),
                 "pursuits_signal_only": len([r for r in results if r.action == "secondary_repo_signal_only"]),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             })
 
         return "SUCCESS"
@@ -447,7 +447,7 @@ async def handle_push(
                 "signals_ingested": len([r for r in results if r.action == "ingested"]),
                 "org_id": org_id,
                 "delivery_id": delivery_id,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             })
 
         return "SUCCESS"
@@ -513,7 +513,7 @@ async def handle_pull_request(
                 "signal_action": result.action,
                 "org_id": org_id,
                 "delivery_id": delivery_id,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             })
 
         return "SUCCESS"
@@ -583,7 +583,7 @@ async def handle_pull_request_review(
                 "signal_action": result.action,
                 "org_id": org_id,
                 "delivery_id": delivery_id,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             })
 
         return "SUCCESS"
@@ -634,7 +634,7 @@ async def handle_installation(
             "github_account_login": account.get("login"),
             "github_account_type": account.get("type"),
             "delivery_id": delivery_id,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         })
 
     # Handle installation created - trigger initial sync
@@ -667,7 +667,7 @@ async def handle_installation(
             {
                 "$set": {
                     "status": "SUSPENDED",
-                    "uninstalled_at": datetime.utcnow()
+                    "uninstalled_at": datetime.now(timezone.utc)
                 }
             }
         )

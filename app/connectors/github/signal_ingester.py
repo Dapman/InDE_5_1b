@@ -21,7 +21,7 @@ Design invariants:
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 
 logger = logging.getLogger("inde.connectors.github.signal_ingester")
@@ -127,7 +127,7 @@ class GitHubSignalIngester:
                 repo_full_name=github_repo_full_name,
                 github_repo_id=github_repo_id,
                 delivery_id=commit_delivery_id,
-                occurred_at=datetime.utcnow(),
+                occurred_at=datetime.now(timezone.utc),
                 pursuit_links=pursuit_links,
                 event_metadata={
                     "commit_sha": commit.get("id", "")[:12],
@@ -211,7 +211,7 @@ class GitHubSignalIngester:
             repo_full_name=github_repo_full_name,
             github_repo_id=github_repo_id,
             delivery_id=delivery_id,
-            occurred_at=datetime.utcnow(),
+            occurred_at=datetime.now(timezone.utc),
             pursuit_links=pursuit_links,
             event_metadata={
                 "pr_number": pr.get("number"),
@@ -270,7 +270,7 @@ class GitHubSignalIngester:
             repo_full_name="",  # No repo for team events
             github_repo_id=0,
             delivery_id=delivery_id,
-            occurred_at=datetime.utcnow(),
+            occurred_at=datetime.now(timezone.utc),
             pursuit_links=[],
             event_metadata={
                 "team_name": team_name,
@@ -297,7 +297,7 @@ class GitHubSignalIngester:
         Returns:
             SummaryRecomputeResult with computed values
         """
-        ninety_days_ago = datetime.utcnow() - timedelta(days=90)
+        ninety_days_ago = datetime.now(timezone.utc) - timedelta(days=90)
 
         # Count signals in the last 90 days
         signal_count = self.db.github_activity_signals.count_documents({
@@ -324,7 +324,7 @@ class GitHubSignalIngester:
                     "github_activity_summary": {
                         "signal_count_90d": signal_count,
                         "pillar_1_signal_strength": strength,
-                        "last_computed_at": datetime.utcnow()
+                        "last_computed_at": datetime.now(timezone.utc)
                     }
                 }
             },
@@ -429,7 +429,7 @@ class GitHubSignalIngester:
             "github_delivery_id": delivery_id,
             "event_metadata": event_metadata,
             "occurred_at": occurred_at,
-            "ingested_at": datetime.utcnow(),
+            "ingested_at": datetime.now(timezone.utc),
         }
 
         try:

@@ -14,7 +14,7 @@ Design invariants:
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 
 from .role_mapper import GitHubRoleMapper
@@ -158,7 +158,7 @@ class GitHubRBACBridge:
         """
         import uuid
         sync_id = str(uuid.uuid4())
-        started_at = datetime.utcnow()
+        started_at = datetime.now(timezone.utc)
 
         synced_count = 0
         pending_count = 0
@@ -184,7 +184,7 @@ class GitHubRBACBridge:
                     floor_applied_count=0,
                     error_count=0,
                     started_at=started_at,
-                    completed_at=datetime.utcnow(),
+                    completed_at=datetime.now(timezone.utc),
                     status="FAILED",
                     error_message="GitHub connector not installed"
                 )
@@ -202,7 +202,7 @@ class GitHubRBACBridge:
                     floor_applied_count=0,
                     error_count=0,
                     started_at=started_at,
-                    completed_at=datetime.utcnow(),
+                    completed_at=datetime.now(timezone.utc),
                     status="FAILED",
                     error_message="Connector not available"
                 )
@@ -218,7 +218,7 @@ class GitHubRBACBridge:
                     floor_applied_count=0,
                     error_count=0,
                     started_at=started_at,
-                    completed_at=datetime.utcnow(),
+                    completed_at=datetime.now(timezone.utc),
                     status="FAILED",
                     error_message="Failed to get API client"
                 )
@@ -278,7 +278,7 @@ class GitHubRBACBridge:
                     "synced_count": synced_count,
                     "pending_count": pending_count,
                     "floor_applied_count": floor_applied_count,
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 })
 
             status = "SUCCESS"
@@ -294,7 +294,7 @@ class GitHubRBACBridge:
                 floor_applied_count=floor_applied_count,
                 error_count=error_count,
                 started_at=started_at,
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(timezone.utc),
                 status=status
             )
 
@@ -309,7 +309,7 @@ class GitHubRBACBridge:
                 floor_applied_count=floor_applied_count,
                 error_count=error_count,
                 started_at=started_at,
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(timezone.utc),
                 status="FAILED",
                 error_message=str(e)
             )
@@ -538,7 +538,7 @@ class GitHubRBACBridge:
         Returns:
             OverrideResult
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # Find existing membership
         membership = self.db.memberships.find_one({
@@ -737,7 +737,7 @@ class GitHubRBACBridge:
         Two-layer independence: This method only modifies pursuit_role,
         never touches org_role.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         synced_count = 0
         unchanged_count = 0
         floor_applied_count = 0
@@ -961,7 +961,7 @@ class GitHubRBACBridge:
         Returns:
             MembershipSyncResult
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         github_derived_role = self.role_mapper.map_org_role(github_role)
 
         # Find InDE user by github_login
@@ -1091,7 +1091,7 @@ class GitHubRBACBridge:
         Returns:
             MembershipSyncResult
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # Find membership by github_login
         membership = self.db.memberships.find_one({
@@ -1199,7 +1199,7 @@ class GitHubRBACBridge:
             "role_before": role_before,
             "role_after": role_after,
             "human_floor_applied": human_floor_applied,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
         }
 
         if details:

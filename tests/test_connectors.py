@@ -11,7 +11,7 @@ import pytest
 import hmac
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch, MagicMock, AsyncMock
 
 # Set test environment variables before imports
@@ -148,7 +148,7 @@ class TestOAuthState:
         mock_db.connector_oauth_states.insert_one = MagicMock()
 
         state = secrets.token_hex(32)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         expires_at = now + timedelta(minutes=10)
 
         doc = {
@@ -329,7 +329,7 @@ class TestHealthCheck:
         # Simulate health check result when not installed
         health = ConnectorHealth(
             status=HealthStatus.DISCONNECTED,
-            last_checked=datetime.utcnow(),
+            last_checked=datetime.now(timezone.utc),
             message="GitHub connector not installed"
         )
 

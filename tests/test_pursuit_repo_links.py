@@ -19,7 +19,7 @@ import os
 import sys
 import pytest
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import patch, MagicMock, AsyncMock
 
 # Set test environment variables before imports
@@ -349,8 +349,8 @@ class TestGetLinks:
         mock_cursor = MagicMock()
         mock_cursor.sort.return_value = mock_cursor
         mock_cursor.__iter__ = lambda self: iter([
-            {"github_repo_id": 111, "is_primary": True, "linked_at": datetime.utcnow()},
-            {"github_repo_id": 222, "is_primary": False, "linked_at": datetime.utcnow()},
+            {"github_repo_id": 111, "is_primary": True, "linked_at": datetime.now(timezone.utc)},
+            {"github_repo_id": 222, "is_primary": False, "linked_at": datetime.now(timezone.utc)},
         ])
         mock_db.pursuit_repo_links.find.return_value = mock_cursor
 

@@ -12,7 +12,7 @@ Connectors must NOT import from coaching, maturity, fear, or pursuit_content mod
 import pytest
 import ast
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
@@ -42,8 +42,8 @@ class TestAdminUnlinkedMembersUI:
             "status": "ACTIVE",
             "github_login": "testuser",
             "github_unlinked": True,
-            "github_unlinked_at": datetime.utcnow(),
-            "github_synced_at": datetime.utcnow(),
+            "github_unlinked_at": datetime.now(timezone.utc),
+            "github_synced_at": datetime.now(timezone.utc),
             "effective_role": "org_member",
             "role": "org_member"
         }
@@ -84,7 +84,7 @@ class TestAdminUnlinkedMembersUI:
         update_fields = {
             "$set": {
                 "status": "REVOKED",
-                "revoked_at": datetime.utcnow(),
+                "revoked_at": datetime.now(timezone.utc),
                 "revoked_by": "admin_001",
                 "revoke_reason": "github_unlinked_confirmed"
             }
@@ -112,7 +112,7 @@ class TestAdminUnlinkedMembersUI:
                 "github_org_role": None,
                 "github_derived_role": None,
                 "human_set_role": "org_member",
-                "human_set_at": datetime.utcnow(),
+                "human_set_at": datetime.now(timezone.utc),
                 "human_set_by": "admin_001"
             }
         }
@@ -138,7 +138,7 @@ class TestAdminUnlinkedMembersUI:
             "github_login": "testuser",
             "affected_user_id": "user_001",
             "admin_user_id": "admin_001",
-            "created_at": datetime.utcnow()
+            "created_at": datetime.now(timezone.utc)
         }
         mock_db.github_sync_log.insert_one(log_entry)
 

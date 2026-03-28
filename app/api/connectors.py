@@ -15,7 +15,7 @@ Routes:
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Request, HTTPException, Depends, BackgroundTasks
 from fastapi.responses import RedirectResponse
@@ -657,7 +657,7 @@ async def get_sync_log(
             role_before=doc.get("role_before"),
             role_after=doc.get("role_after"),
             human_floor_applied=doc.get("human_floor_applied", False),
-            created_at=doc.get("created_at", datetime.utcnow()).isoformat(),
+            created_at=doc.get("created_at", datetime.now(timezone.utc)).isoformat(),
             delivery_id=doc.get("github_delivery_id")
         ))
 
@@ -933,7 +933,7 @@ async def confirm_unlink_member(
             {
                 "$set": {
                     "status": "REVOKED",
-                    "revoked_at": datetime.utcnow(),
+                    "revoked_at": datetime.now(timezone.utc),
                     "revoked_by": admin_user_id,
                     "revoke_reason": "github_unlinked_confirmed"
                 }
@@ -948,7 +948,7 @@ async def confirm_unlink_member(
             "github_login": membership.get("github_login"),
             "affected_user_id": user_id,
             "admin_user_id": admin_user_id,
-            "created_at": datetime.utcnow()
+            "created_at": datetime.now(timezone.utc)
         })
 
         return ConfirmUnlinkResponse(
@@ -970,7 +970,7 @@ async def confirm_unlink_member(
                     "github_org_role": None,
                     "github_derived_role": None,
                     "human_set_role": membership.get("effective_role", "org_viewer"),
-                    "human_set_at": datetime.utcnow(),
+                    "human_set_at": datetime.now(timezone.utc),
                     "human_set_by": admin_user_id
                 }
             }
@@ -985,7 +985,7 @@ async def confirm_unlink_member(
             "affected_user_id": user_id,
             "admin_user_id": admin_user_id,
             "retained_role": membership.get("effective_role", "org_viewer"),
-            "created_at": datetime.utcnow()
+            "created_at": datetime.now(timezone.utc)
         })
 
         return ConfirmUnlinkResponse(
