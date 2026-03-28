@@ -1,0 +1,261 @@
+/**
+ * InDE v4.8 - ITD Living Preview Styles
+ *
+ * Visual design mirrors the Innovation Health Card pattern.
+ * Accessible, responsive, and theme-aware.
+ *
+ * 2026 Yul Williams | InDEVerse, Incorporated
+ */
+
+.itd-living-preview {
+  background: var(--bg-surface, #1a1a2e);
+  border: 1px solid var(--border-subtle, #2d2d44);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+  transition: all 0.2s ease;
+}
+
+.itd-living-preview:hover {
+  border-color: var(--border-hover, #3d3d5c);
+}
+
+.itd-living-preview--completed {
+  border-color: var(--color-green-500, #22c55e);
+  background: linear-gradient(
+    135deg,
+    var(--bg-surface, #1a1a2e) 0%,
+    rgba(34, 197, 94, 0.05) 100%
+  );
+}
+
+.itd-living-preview--loading {
+  min-height: 80px;
+}
+
+.itd-preview-skeleton {
+  height: 60px;
+  background: linear-gradient(
+    90deg,
+    var(--bg-subtle, #2d2d44) 25%,
+    var(--bg-surface, #1a1a2e) 50%,
+    var(--bg-subtle, #2d2d44) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Header */
+.itd-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding-bottom: 12px;
+  user-select: none;
+}
+
+.itd-preview-header:focus {
+  outline: 2px solid var(--color-blue-500, #3b82f6);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.itd-preview-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary, #e0e0e0);
+}
+
+.itd-preview-readiness {
+  font-size: 12px;
+  color: var(--text-secondary, #a0a0a0);
+  flex: 1;
+  text-align: right;
+  margin-right: 8px;
+}
+
+.itd-preview-chevron {
+  font-size: 10px;
+  color: var(--text-tertiary, #707070);
+  transition: transform 0.2s ease;
+}
+
+/* Progress bar */
+.itd-preview-progress-bar {
+  height: 6px;
+  background: var(--bg-subtle, #2d2d44);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.itd-preview-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+/* Layers detail view */
+.itd-preview-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle, #2d2d44);
+  margin-top: 8px;
+}
+
+.itd-preview-layer {
+  padding: 8px 0;
+}
+
+.itd-preview-layer-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.itd-preview-layer-number {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bg-subtle, #2d2d44);
+  color: var(--text-secondary, #a0a0a0);
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.itd-preview-layer--complete .itd-preview-layer-number {
+  background: var(--color-green-500, #22c55e);
+  color: white;
+}
+
+.itd-preview-layer--ready .itd-preview-layer-number {
+  background: var(--color-blue-500, #3b82f6);
+  color: white;
+}
+
+.itd-preview-layer--forming .itd-preview-layer-number {
+  background: var(--color-amber-500, #f59e0b);
+  color: white;
+}
+
+.itd-preview-layer-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-primary, #e0e0e0);
+}
+
+.itd-preview-layer-status {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* Layer progress bar */
+.itd-preview-layer-bar {
+  height: 4px;
+  background: var(--bg-subtle, #2d2d44);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.itd-preview-layer-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* Data signals */
+.itd-preview-layer-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.itd-preview-signal {
+  font-size: 10px;
+  color: var(--text-tertiary, #707070);
+  background: var(--bg-subtle, #2d2d44);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* Coach message */
+.itd-preview-coach-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-subtle, #2d2d44);
+  border-radius: 8px;
+  margin-top: 12px;
+}
+
+.itd-preview-coach-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.itd-preview-coach-message p {
+  font-size: 12px;
+  color: var(--text-secondary, #a0a0a0);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* What is this tooltip */
+.itd-preview-tooltip {
+  margin-top: 12px;
+}
+
+.itd-preview-tooltip summary {
+  font-size: 11px;
+  color: var(--text-tertiary, #707070);
+  cursor: pointer;
+  user-select: none;
+}
+
+.itd-preview-tooltip summary:hover {
+  color: var(--text-secondary, #a0a0a0);
+}
+
+.itd-preview-tooltip p {
+  font-size: 11px;
+  color: var(--text-tertiary, #707070);
+  line-height: 1.5;
+  margin-top: 8px;
+  padding-left: 16px;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .itd-living-preview {
+    padding: 12px;
+  }
+
+  .itd-preview-layer-header {
+    flex-wrap: wrap;
+  }
+
+  .itd-preview-layer-status {
+    width: 100%;
+    margin-top: 4px;
+    margin-left: 28px;
+  }
+}
